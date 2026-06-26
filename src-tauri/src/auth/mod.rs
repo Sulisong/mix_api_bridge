@@ -211,14 +211,17 @@ impl AuthState {
 }
 
 fn keyring_disabled() -> bool {
-    std::env::var(DISABLE_KEYRING_ENV)
-        .map(|v| {
-            matches!(
-                v.as_str(),
-                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
-            )
-        })
-        .unwrap_or(false)
+    let check = |name: &str| -> bool {
+        std::env::var(name)
+            .map(|v| {
+                matches!(
+                    v.as_str(),
+                    "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+                )
+            })
+            .unwrap_or(false)
+    };
+    check("MICLAW_API_BRIDGE_DISABLE_KEYRING") || check("MIX_API_BRIDGE_DISABLE_KEYRING")
 }
 
 fn keyring_entry() -> Result<keyring::Entry> {
