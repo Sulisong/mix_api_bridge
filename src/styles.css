@@ -593,7 +593,7 @@ select:focus {
 }
 
 .model-row {
-  grid-template-columns: 64px minmax(200px, 0.8fr) minmax(0, 1fr) auto;
+  grid-template-columns: 64px minmax(200px, 0.8fr) minmax(0, 1fr) minmax(96px, auto);
   padding-left: 48px;
 }
 
