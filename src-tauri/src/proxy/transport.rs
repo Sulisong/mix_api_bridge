@@ -75,7 +75,7 @@ pub fn request_log(ctrl: &ProxyController, path: &str, body: &Value) -> Value {
 
 /// Forward a JSON request to mimo, streaming the upstream bytes back.
 pub async fn forward(ctrl: Arc<ProxyController>, upstream_path: &str, body: Value) -> Response {
-    let __stream_requested = body
+    let stream_requested = body
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
@@ -87,7 +87,7 @@ pub async fn forward(ctrl: Arc<ProxyController>, upstream_path: &str, body: Valu
     let started = std::time::Instant::now();
     tracing::debug!(
         target = "proxy",
-        "→ mimo {upstream_path} stream={_stream_requested} model={model}"
+        "→ mimo {upstream_path} stream={stream_requested} model={model}"
     );
     emit_log(&ctrl, request_log(&ctrl, upstream_path, &body));
     match ctrl.mimo.post_json(upstream_path, body).await {
@@ -291,7 +291,7 @@ pub async fn opencode_forward(ctrl: Arc<ProxyController>, body: Value) -> Respon
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let __stream_requested = body
+    let _stream_requested = body
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
