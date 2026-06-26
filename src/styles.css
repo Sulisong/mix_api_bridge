@@ -597,6 +597,10 @@ select:focus {
   padding-left: 48px;
 }
 
+.model-row span {
+  text-align: left;
+}
+
 .upstream-badge {
   display: inline-block;
   padding: 4px 10px;
