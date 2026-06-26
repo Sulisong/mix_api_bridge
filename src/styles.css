@@ -604,6 +604,7 @@ select:focus {
 
 .upstream-badge {
   display: inline-block;
+  justify-self: center;
   padding: 4px 10px;
   font-size: 11px;
   font-weight: 800;
