@@ -8,10 +8,10 @@
 # Build inside an OpenWrt SDK matching your firmware
 # (mediatek/filogic, ImmortalWrt 24.10, arch aarch64_cortex-a53):
 #
-#   1. Copy this folder to <sdk>/package/luci-app-miclaw
+#   1. Copy this folder to <sdk>/package/luci-app-mix
 #   2. Copy the LuCI sources next to it:
-#        cp -r ../../luci/htdocs ../../luci/root  <sdk>/package/luci-app-miclaw/
-#   3. make package/luci-app-miclaw/compile V=s
+#        cp -r ../../luci/htdocs ../../luci/root  <sdk>/package/luci-app-mix/
+#   3. make package/luci-app-mix/compile V=s
 #
 # This packages ONLY the LuCI frontend. The Rust server binary + init script +
 # UCI config are deployed separately (see openwrt/README.md), because the binary
@@ -19,11 +19,11 @@
 
 include $(TOPDIR)/rules.mk
 
-LUCI_TITLE:=LuCI support for miclaw_api_bridge (Mimo Bridge)
+LUCI_TITLE:=LuCI support for mix_api_bridge (Mimo + OpenCode Gateway)
 LUCI_DEPENDS:=
 LUCI_PKGARCH:=all
 
-PKG_NAME:=luci-app-miclaw
+PKG_NAME:=luci-app-mix
 PKG_VERSION:=0.1.0
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT

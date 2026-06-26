@@ -1,10 +1,10 @@
 {
-	"admin/services/miclaw": {
+	"admin/services/mix": {
 		"title": "Mimo Bridge",
 		"order": 60,
 		"action": {
 			"type": "view",
-			"path": "miclaw/overview"
+			"path": "mix/overview"
 		},
 		"depends": {
 			"acl": [ "luci-app-mix" ]

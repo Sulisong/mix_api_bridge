@@ -48,15 +48,15 @@ mkdir -p \
   "$DATA/usr/bin" \
   "$DATA/etc/init.d" \
   "$DATA/etc/config" \
-  "$DATA/www/luci-static/resources/view/miclaw" \
+  "$DATA/www/luci-static/resources/view/mix" \
   "$DATA/usr/share/luci/menu.d" \
   "$DATA/usr/share/rpcd/acl.d"
 
 install -m 0755 "$BIN"                                   "$DATA/usr/bin/mix_api_bridge"
 install -m 0755 "$OWRT/files/etc/init.d/mix_api_bridge" "$DATA/etc/init.d/mix_api_bridge"
 install -m 0644 "$OWRT/files/etc/config/mix_api_bridge" "$DATA/etc/config/mix_api_bridge"
-install -m 0644 "$OWRT/luci/htdocs/luci-static/resources/view/miclaw/overview.js" \
-  "$DATA/www/luci-static/resources/view/miclaw/overview.js"
+install -m 0644 "$OWRT/luci/htdocs/luci-static/resources/view/mix/overview.js" \
+  "$DATA/www/luci-static/resources/view/mix/overview.js"
 install -m 0644 "$OWRT/luci/root/usr/share/luci/menu.d/luci-app-mix.json" \
   "$DATA/usr/share/luci/menu.d/luci-app-mix.json"
 install -m 0644 "$OWRT/luci/root/usr/share/rpcd/acl.d/luci-app-mix.json" \

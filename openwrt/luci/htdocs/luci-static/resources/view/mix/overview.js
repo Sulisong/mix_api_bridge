@@ -96,7 +96,7 @@ return view.extend({
 		/* The embedded WebUI */
 		var iframe = E('iframe', {
 			'src': url,
-			'id': 'miclaw-frame',
+			'id': 'mix-frame',
 			'style': 'width:100%; height:calc(100vh - 230px); min-height:480px; ' +
 				'border:1px solid #ccc; border-radius:6px; background:#fff;',
 			'frameborder': '0',

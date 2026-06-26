@@ -1,19 +1,19 @@
 #!/bin/sh /etc/rc.common
-# procd service for miclaw_api_bridge headless server on OpenWrt.
+# procd service for mix_api_bridge headless server on OpenWrt.
 
 START=95
 STOP=10
 USE_PROCD=1
 
-PROG=/usr/bin/miclaw_api_bridge
-CONF=miclaw_api_bridge
+PROG=/usr/bin/mix_api_bridge
+CONF=mix_api_bridge
 
 # Persist session/settings here (survives reboots; NOT cleared on sysupgrade
 # only if added to /etc/sysupgrade.conf — see README).
-DATA_DIR=/etc/miclaw_api_bridge
+DATA_DIR=/etc/mix_api_bridge
 
 start_service() {
-	# Defaults; overridable via /etc/config/miclaw_api_bridge
+	# Defaults; overridable via /etc/config/mix_api_bridge
 	local enabled host port verbose tls tls_cert tls_key
 
 	config_load "$CONF"
@@ -26,7 +26,7 @@ start_service() {
 	config_get      tls_key  main tls_key  ""
 
 	[ "$enabled" = "1" ] || {
-		echo "miclaw_api_bridge disabled in /etc/config/$CONF" >&2
+		echo "mix_api_bridge disabled in /etc/config/$CONF" >&2
 		return 1
 	}
 
@@ -43,10 +43,10 @@ start_service() {
 
 	# No OS keyring on OpenWrt → store session on disk.
 	procd_set_param env \
-		MICLAW_API_BRIDGE_DISABLE_KEYRING=1 \
+		MIX_API_BRIDGE_DISABLE_KEYRING=1 \
 		XDG_CONFIG_HOME="$DATA_DIR/config" \
 		XDG_DATA_HOME="$DATA_DIR/data" \
-		RUST_LOG="miclaw_api_bridge_lib=$( [ "$verbose" = 1 ] && echo debug || echo info )"
+		RUST_LOG="mix_api_bridge_lib=$( [ "$verbose" = 1 ] && echo debug || echo info )"
 
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1

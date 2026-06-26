@@ -44,9 +44,9 @@ fi
 
 # --- 3. LuCI app ------------------------------------------------------------
 echo "==> installing LuCI app"
-mkdir -p /www/luci-static/resources/view/miclaw
-cp -f "$HERE/luci/htdocs/luci-static/resources/view/miclaw/overview.js" \
-	/www/luci-static/resources/view/miclaw/overview.js
+mkdir -p /www/luci-static/resources/view/mix
+cp -f "$HERE/luci/htdocs/luci-static/resources/view/mix/overview.js" \
+	/www/luci-static/resources/view/mix/overview.js
 mkdir -p /usr/share/luci/menu.d /usr/share/rpcd/acl.d
 cp -f "$HERE/luci/root/usr/share/luci/menu.d/luci-app-mix.json" \
 	/usr/share/luci/menu.d/luci-app-mix.json

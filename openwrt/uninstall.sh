@@ -16,8 +16,8 @@ echo "==> stopping + disabling service"
 echo "==> removing binary + init + LuCI app"
 rm -f /usr/bin/mix_api_bridge
 rm -f /etc/init.d/mix_api_bridge
-rm -f /www/luci-static/resources/view/miclaw/overview.js
-rmdir /www/luci-static/resources/view/miclaw 2>/dev/null || true
+rm -f /www/luci-static/resources/view/mix/overview.js
+rmdir /www/luci-static/resources/view/mix 2>/dev/null || true
 rm -f /usr/share/luci/menu.d/luci-app-mix.json
 rm -f /usr/share/rpcd/acl.d/luci-app-mix.json
 

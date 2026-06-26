@@ -16,7 +16,7 @@ use std::net::{IpAddr, Ipv4Addr};
 #[command(
     name = "mix_api_bridge",
     version,
-    about = "Xiaomi miclaw local API bridge"
+    about = "Xiaomi local API bridge"
 )]
 struct Cli {
     #[command(subcommand)]
