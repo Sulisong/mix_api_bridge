@@ -597,7 +597,8 @@ select:focus {
   padding-left: 48px;
 }
 
-.model-row span {
+.model-row code,
+.model-row > span:not(.row-index):not(.upstream-badge) {
   text-align: left;
 }
 
