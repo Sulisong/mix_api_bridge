@@ -894,7 +894,7 @@ async fn opencode_via_anthropic(
     ctrl: Arc<ProxyController>,
     openai_body: Value,
     model: String,
-    stream_requested: bool,
+    _stream_requested: bool,
     started: std::time::Instant,
 ) -> Response {
     match ctrl.opencode.post_json(openai_body).await {

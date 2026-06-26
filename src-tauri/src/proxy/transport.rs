@@ -26,18 +26,23 @@ pub fn map_err(e: BridgeError) -> Response {
 }
 
 pub async fn list_models(_ctrl: Arc<ProxyController>) -> Response {
-    let mut data: Vec<Value> = crate::mimo::known_models()
-        .into_iter()
-        .chain(crate::opencode::known_models())
-        .map(|m| {
-            json!({
-                "id": m.id,
-                "object": m.object,
-                "owned_by": m.owned_by,
-                "created": chrono::Utc::now().timestamp(),
-            })
-        })
-        .collect();
+    let mut data: Vec<Value> = Vec::new();
+    for m in crate::mimo::known_models() {
+        data.push(json!({
+            "id": m.id,
+            "object": m.object,
+            "owned_by": m.owned_by,
+            "created": chrono::Utc::now().timestamp(),
+        }));
+    }
+    for m in crate::opencode::known_models() {
+        data.push(json!({
+            "id": m.id,
+            "object": m.object,
+            "owned_by": m.owned_by,
+            "created": chrono::Utc::now().timestamp(),
+        }));
+    }
     data.sort_by(|a, b| a["id"].as_str().unwrap_or("").cmp(b["id"].as_str().unwrap_or("")));
     Json(json!({
         "object": "list",
@@ -70,7 +75,7 @@ pub fn request_log(ctrl: &ProxyController, path: &str, body: &Value) -> Value {
 
 /// Forward a JSON request to mimo, streaming the upstream bytes back.
 pub async fn forward(ctrl: Arc<ProxyController>, upstream_path: &str, body: Value) -> Response {
-    let stream_requested = body
+    let __stream_requested = body
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
@@ -82,7 +87,7 @@ pub async fn forward(ctrl: Arc<ProxyController>, upstream_path: &str, body: Valu
     let started = std::time::Instant::now();
     tracing::debug!(
         target = "proxy",
-        "→ mimo {upstream_path} stream={stream_requested} model={model}"
+        "→ mimo {upstream_path} stream={_stream_requested} model={model}"
     );
     emit_log(&ctrl, request_log(&ctrl, upstream_path, &body));
     match ctrl.mimo.post_json(upstream_path, body).await {
@@ -286,7 +291,7 @@ pub async fn opencode_forward(ctrl: Arc<ProxyController>, body: Value) -> Respon
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let stream_requested = body
+    let __stream_requested = body
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);

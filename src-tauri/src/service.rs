@@ -1,7 +1,7 @@
 use crate::auth;
 use crate::auth::login::{LoginOutcome, LoginRequest};
 use crate::error::{BridgeError, Result};
-use crate::mimo::{known_models as mimo_models, AuthSnapshot, ModelInfo};
+use crate::mimo::{known_models as mimo_models, AuthSnapshot};
 use crate::opencode::known_models as opencode_models;
 use crate::proxy::ProxySnapshot;
 use crate::state::BridgeState;
@@ -77,8 +77,15 @@ pub fn proxy_status(state: &Arc<BridgeState>) -> ProxySnapshot {
     }
 }
 
-pub fn list_models() -> Vec<ModelInfo> {
+pub fn list_models() -> Vec<crate::mimo::ModelInfo> {
     let mut models = mimo_models();
-    models.extend(opencode_models());
+    for m in opencode_models() {
+        models.push(crate::mimo::ModelInfo {
+            id: m.id,
+            object: m.object,
+            owned_by: m.owned_by,
+            family: m.family,
+        });
+    }
     models
 }
