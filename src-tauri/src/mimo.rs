@@ -1,4 +1,4 @@
-use crate::auth::{build_http_client, AuthState};
+use crate::auth::AuthState;
 use crate::error::{BridgeError, Result};
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -9,6 +9,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use tokio::sync::RwLock as AsyncRwLock;
 
 /// All mimo PC traffic terminates at this host.
 pub const MIMO_HOST: &str = "https://api.miclaw.xiaomi.net";
@@ -108,11 +109,42 @@ pub fn known_models() -> Vec<ModelInfo> {
 
 pub struct MimoClient {
     auth: Arc<RwLock<AuthState>>,
+    client: Arc<AsyncRwLock<reqwest::Client>>,
 }
 
 impl MimoClient {
     pub fn new(auth: Arc<RwLock<AuthState>>) -> Self {
-        Self { auth }
+        // Build a reusable HTTP client with sensible pool limits.
+        let client = Self::build_client(&auth.read().session);
+        Self {
+            auth,
+            client: Arc::new(AsyncRwLock::new(client)),
+        }
+    }
+
+    /// Build a reqwest::Client tuned for the Mimo upstream.
+    /// Called once at construction and on 401 token refresh.
+    fn build_client(session: &crate::auth::Session) -> reqwest::Client {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("user-agent"),
+            HeaderValue::from_static("node"),
+        );
+        headers.insert(
+            HeaderName::from_static("accept"),
+            HeaderValue::from_static("*/*"),
+        );
+        headers.insert(
+            HeaderName::from_static("accept-encoding"),
+            HeaderValue::from_static("gzip"),
+        );
+        reqwest::Client::builder()
+            .default_headers(headers)
+            .gzip(true)
+            .pool_idle_timeout(std::time::Duration::from_secs(30))
+            .pool_max_idle_per_host(2)
+            .build()
+            .expect("MimoClient: reqwest::Client::new")
     }
 
     pub fn auth_handle(&self) -> Arc<RwLock<AuthState>> {
@@ -197,8 +229,8 @@ impl MimoClient {
 
     async fn post_json_once(&self, path: &str, body: Value) -> Result<reqwest::Response> {
         let session = self.snapshot()?;
-        let (client, _) = build_http_client(&session)?;
         let headers = self.build_headers(&session)?;
+        let client = self.client.read().await;
         // Diagnostic: cookie shape (lengths only, never values).
         if let Some(c) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
             let parts: Vec<String> = c
@@ -235,6 +267,8 @@ impl MimoClient {
         let next = crate::auth::login::swap_to_osbotapi_token(&dummy, session).await?;
         let mut guard = self.auth.write();
         guard.session = next;
+        // Rebuild the HTTP client with updated cookies.
+        *self.client.write().await = Self::build_client(&guard.session);
         Ok(())
     }
 
