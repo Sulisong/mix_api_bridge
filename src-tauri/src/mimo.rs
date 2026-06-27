@@ -9,7 +9,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 
 /// All mimo PC traffic terminates at this host.
 pub const MIMO_HOST: &str = "https://api.miclaw.xiaomi.net";
@@ -244,7 +244,9 @@ impl MimoClient {
                 .collect();
             tracing::debug!(target = "mimo", "cookie shape: [{}]", parts.join(", "));
         }
-        let client = self.client.lock().await;
+        // Clone the shared client (internally Arc, essentially free) so the
+        // Mutex lock is dropped before the .await, avoiding Send issues.
+        let client = self.client.lock().unwrap().clone();
         let resp = client
             .request(Method::POST, format!("{MIMO_HOST}{path}"))
             .headers(headers)
@@ -268,7 +270,7 @@ impl MimoClient {
         let mut guard = self.auth.write();
         guard.session = next;
         // Rebuild the HTTP client with updated cookies.
-        *self.client.lock().await = Self::build_client(&guard.session);
+        *self.client.lock().unwrap() = Self::build_client(&guard.session);
         Ok(())
     }
 
