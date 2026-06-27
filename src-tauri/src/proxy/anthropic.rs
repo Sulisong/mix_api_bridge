@@ -900,9 +900,8 @@ impl Stream for SseTranslator {
 /// We forward it to the OpenCode upstream (`/zen/v1/chat/completions`), then
 /// convert the OpenAI SSE response back to Anthropic Messages SSE.
 ///
-/// Unlike the Mimo path, we use a lightweight SSE translator that only handles
-/// text content deltas — no thinking blocks, tool calls, or extended signature
-/// management — since OpenCode free models are simpler.
+/// Uses a lightweight SSE translator that handles text content and tool calls
+/// — no thinking blocks or extended thinking, since OpenCode free models are simpler.
 async fn opencode_via_anthropic(
     ctrl: Arc<ProxyController>,
     openai_body: Value,
@@ -957,8 +956,8 @@ async fn opencode_via_anthropic(
 ///
 /// Extracts text deltas from `choices[0].delta.content` and emits Anthropic
 /// `content_block_start`/`content_block_delta`/`content_block_stop` events.
-/// No thinking blocks, tool calls, or usage tracking — OpenCode free models
-/// are simple text-only responses.
+/// Supports tool calls (OpenAI `tool_calls` → Anthropic `tool_use` content blocks).
+/// No thinking blocks or extended thinking — OpenCode free models are simpler.
 struct OpenCodeSseTranslator {
     inner: futures::stream::BoxStream<'static, std::result::Result<Bytes, reqwest::Error>>,
     decoder: crate::decode::Utf8Stream,
@@ -967,7 +966,9 @@ struct OpenCodeSseTranslator {
     usage: Arc<crate::usage::UsageStore>,
     started: bool,
     finished: bool,
-    block_started: bool,
+    text_block_started: bool,
+    next_index: u32,
+    tool_blocks: std::collections::HashMap<u64, ToolBlock>,
     input_tokens: u64,
     output_tokens: u64,
     stop_reason: String,
@@ -987,7 +988,9 @@ impl OpenCodeSseTranslator {
             usage,
             started: false,
             finished: false,
-            block_started: false,
+            text_block_started: false,
+            next_index: 0,
+            tool_blocks: std::collections::HashMap::new(),
             input_tokens: 0,
             output_tokens: 0,
             stop_reason: String::new(),
@@ -1070,13 +1073,15 @@ impl OpenCodeSseTranslator {
             // Text content delta.
             if let Some(s) = delta.get("content").and_then(|v| v.as_str()) {
                 if !s.is_empty() {
-                    if !self.block_started {
-                        self.block_started = true;
+                    if !self.text_block_started {
+                        self.text_block_started = true;
+                        let idx = self.next_index;
+                        self.next_index += 1;
                         out.push(format!(
                             "event: content_block_start\ndata: {}\n\n",
                             json!({
                                 "type": "content_block_start",
-                                "index": 0,
+                                "index": idx,
                                 "content_block": {"type": "text", "text": ""}
                             })
                         ));
@@ -1092,11 +1097,77 @@ impl OpenCodeSseTranslator {
                 }
             }
 
+            // Tool call deltas.
+            if let Some(arr) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                for tc in arr {
+                    let idx = tc.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let block_index = if let Some(b) = self.tool_blocks.get(&idx) {
+                        b.block_index
+                    } else {
+                        let bi = self.next_index;
+                        self.next_index += 1;
+                        self.tool_blocks.insert(idx, ToolBlock {
+                            block_index: bi,
+                            started: false,
+                            name_emitted: false,
+                        });
+                        bi
+                    };
+                    let mut emit_start = false;
+                    if let Some(b) = self.tool_blocks.get_mut(&idx) {
+                        if !b.started {
+                            emit_start = true;
+                            b.started = true;
+                        }
+                    }
+                    let id = tc.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| format!("toolu_{}", Uuid::new_v4().simple()));
+                    let name = tc.get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if emit_start {
+                        out.push(format!(
+                            "event: content_block_start\ndata: {}\n\n",
+                            json!({
+                                "type": "content_block_start",
+                                "index": block_index,
+                                "content_block": {"type": "tool_use", "id": id, "name": name, "input": {}},
+                            })
+                        ));
+                        if let Some(b) = self.tool_blocks.get_mut(&idx) {
+                            if !name.is_empty() {
+                                b.name_emitted = true;
+                            }
+                        }
+                    }
+                    if let Some(args) = tc.get("function")
+                        .and_then(|f| f.get("arguments"))
+                        .and_then(|v| v.as_str())
+                    {
+                        if !args.is_empty() {
+                            out.push(format!(
+                                "event: content_block_delta\ndata: {}\n\n",
+                                json!({
+                                    "type": "content_block_delta",
+                                    "index": block_index,
+                                    "delta": {"type": "input_json_delta", "partial_json": args}
+                                })
+                            ));
+                        }
+                    }
+                }
+            }
+
             // Finish reason.
             if let Some(reason) = ch.get("finish_reason").and_then(|v| v.as_str()) {
                 self.stop_reason = match reason {
                     "stop" => "end_turn".into(),
                     "length" => "max_tokens".into(),
+                    "tool_calls" => "tool_use".into(),
                     other => other.to_string(),
                 };
             }
@@ -1128,11 +1199,25 @@ impl OpenCodeSseTranslator {
                 })
             ));
         }
-        if self.block_started {
+        // Close any open text block.
+        if self.text_block_started {
             out.push(format!(
                 "event: content_block_stop\ndata: {}\n\n",
                 json!({"type": "content_block_stop", "index": 0})
             ));
+        }
+        // Close any open tool blocks.
+        let mut tool_indices: Vec<u64> = self.tool_blocks.keys().copied().collect();
+        tool_indices.sort();
+        for idx in tool_indices {
+            if let Some(b) = self.tool_blocks.get(&idx) {
+                if b.started {
+                    out.push(format!(
+                        "event: content_block_stop\ndata: {}\n\n",
+                        json!({"type": "content_block_stop", "index": b.block_index})
+                    ));
+                }
+            }
         }
         let stop = if self.stop_reason.is_empty() {
             "end_turn".to_string()
