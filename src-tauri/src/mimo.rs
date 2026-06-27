@@ -9,7 +9,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::RwLock as AsyncRwLock;
+use tokio::sync::Mutex;
 
 /// All mimo PC traffic terminates at this host.
 pub const MIMO_HOST: &str = "https://api.miclaw.xiaomi.net";
@@ -109,16 +109,16 @@ pub fn known_models() -> Vec<ModelInfo> {
 
 pub struct MimoClient {
     auth: Arc<RwLock<AuthState>>,
-    client: Arc<AsyncRwLock<reqwest::Client>>,
+    client: Mutex<reqwest::Client>,
 }
 
 impl MimoClient {
     pub fn new(auth: Arc<RwLock<AuthState>>) -> Self {
-        // Build a reusable HTTP client with sensible pool limits.
-        let client = Self::build_client(&auth.read().session);
+        let session = auth.read().session.clone();
+        let client = Self::build_client(&session);
         Self {
             auth,
-            client: Arc::new(AsyncRwLock::new(client)),
+            client: Mutex::new(client),
         }
     }
 
@@ -230,7 +230,6 @@ impl MimoClient {
     async fn post_json_once(&self, path: &str, body: Value) -> Result<reqwest::Response> {
         let session = self.snapshot()?;
         let headers = self.build_headers(&session)?;
-        let client = self.client.read().await;
         // Diagnostic: cookie shape (lengths only, never values).
         if let Some(c) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
             let parts: Vec<String> = c
@@ -245,6 +244,7 @@ impl MimoClient {
                 .collect();
             tracing::debug!(target = "mimo", "cookie shape: [{}]", parts.join(", "));
         }
+        let client = self.client.lock().await;
         let resp = client
             .request(Method::POST, format!("{MIMO_HOST}{path}"))
             .headers(headers)
@@ -268,7 +268,7 @@ impl MimoClient {
         let mut guard = self.auth.write();
         guard.session = next;
         // Rebuild the HTTP client with updated cookies.
-        *self.client.write().await = Self::build_client(&guard.session);
+        *self.client.lock().await = Self::build_client(&guard.session);
         Ok(())
     }
 
