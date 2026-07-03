@@ -252,3 +252,4 @@ cd src-tauri && cargo build --release --bin mix_api_bridge
 ## 许可证
 
 [MIT](LICENSE)
+<!-- v2 -->
