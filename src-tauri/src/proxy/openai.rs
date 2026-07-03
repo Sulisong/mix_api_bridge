@@ -1,5 +1,5 @@
 use super::transport::{
-    emit_log, forward, list_models, map_err, opencode_forward, proxy_response,
+    emit_log, list_models, map_err, opencode_forward, proxy_response,
     proxy_response_tapped,
 };
 use super::ProxyController;
@@ -15,20 +15,13 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-const RESPONSES_MODE_UNKNOWN: u8 = 0;
-const RESPONSES_MODE_PASSTHROUGH: u8 = 1;
-const RESPONSES_MODE_COMPAT: u8 = 2;
 
 /// Upper bound for the in-flight SSE reassembly buffer. mimo's chunks are a few
 /// KB of JSON each; if the upstream never emits a `\n\n` delimiter the buffer
 /// would otherwise grow without limit, so we treat overflow as a stream error.
 const MAX_SSE_BUFFER: usize = 8 * 1024 * 1024;
-
-static RESPONSES_MODE: AtomicU8 = AtomicU8::new(RESPONSES_MODE_UNKNOWN);
 
 pub async fn chat(State(ctrl): State<Arc<ProxyController>>, Json(body): Json<Value>) -> Response {
     chat_completions(ctrl, body).await
@@ -76,8 +69,7 @@ async fn chat_completions(ctrl: Arc<ProxyController>, body: Value) -> Response {
         super::transport::request_log(&ctrl, crate::mimo::PATH_CHAT, &body),
     );
 
-    // Rate-limit concurrent upstream calls.
-    let _permit = ctrl.semaphore.clone().acquire_owned().await.unwrap();
+
     match ctrl.mimo.post_json(crate::mimo::PATH_CHAT, body).await {
         Ok(upstream) => {
             let status = upstream.status();
@@ -780,36 +772,19 @@ async fn chat_nonstream_normalized(
     Json(out).into_response()
 }
 
+
+/// `/v1/responses`: try native upstream first; if it 404s (model/endpoint
+/// doesn't support Responses), fall back to chat-completions compat conversion.
 pub async fn responses(
     State(ctrl): State<Arc<ProxyController>>,
     Json(body): Json<Value>,
 ) -> Response {
-    responses_passthrough_or_compat(ctrl, body).await
-}
-
-pub async fn models(State(ctrl): State<Arc<ProxyController>>) -> Response {
-    list_models(ctrl).await
-}
-
-async fn responses_passthrough_or_compat(ctrl: Arc<ProxyController>, body: Value) -> Response {
-    match RESPONSES_MODE.load(Ordering::Relaxed) {
-        RESPONSES_MODE_PASSTHROUGH => {
-            return forward(ctrl, crate::mimo::PATH_RESPONSES, body).await;
-        }
-        RESPONSES_MODE_COMPAT => {
-            return responses_compat(ctrl, body).await;
-        }
-        _ => {}
-    }
-
     let started = std::time::Instant::now();
     emit_log(
         &ctrl,
         super::transport::request_log(&ctrl, crate::mimo::PATH_RESPONSES, &body),
     );
 
-    // Rate-limit concurrent upstream calls.
-    let _permit = ctrl.semaphore.clone().acquire_owned().await.unwrap();
     match ctrl
         .mimo
         .post_json(crate::mimo::PATH_RESPONSES, body.clone())
@@ -817,10 +792,9 @@ async fn responses_passthrough_or_compat(ctrl: Arc<ProxyController>, body: Value
     {
         Ok(upstream) if upstream.status() == reqwest::StatusCode::NOT_FOUND => {
             let _ = upstream.bytes().await;
-            RESPONSES_MODE.store(RESPONSES_MODE_COMPAT, Ordering::Relaxed);
             tracing::info!(
                 target = "proxy",
-                "mimo PC responses endpoint returned 404; using chat-completions compatibility mode"
+                "upstream responses endpoint 404; falling back to chat-completions compat"
             );
             emit_log(
                 &ctrl,
@@ -836,9 +810,6 @@ async fn responses_passthrough_or_compat(ctrl: Arc<ProxyController>, body: Value
         }
         Ok(upstream) => {
             let status = upstream.status();
-            if status.is_success() {
-                RESPONSES_MODE.store(RESPONSES_MODE_PASSTHROUGH, Ordering::Relaxed);
-            }
             emit_log(
                 &ctrl,
                 json!({
@@ -870,6 +841,11 @@ async fn responses_passthrough_or_compat(ctrl: Arc<ProxyController>, body: Value
             map_err(e)
         }
     }
+}
+
+
+pub async fn models(State(ctrl): State<Arc<ProxyController>>) -> Response {
+    list_models(ctrl).await
 }
 
 async fn responses_compat(ctrl: Arc<ProxyController>, body: Value) -> Response {

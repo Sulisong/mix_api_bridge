@@ -1,4 +1,4 @@
-use crate::auth::AuthState;
+use crate::auth::{build_http_client, AuthState};
 use crate::error::{BridgeError, Result};
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -9,7 +9,6 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 /// All mimo PC traffic terminates at this host.
 pub const MIMO_HOST: &str = "https://api.miclaw.xiaomi.net";
@@ -56,95 +55,68 @@ pub struct ModelInfo {
 ///   PC channel 4xxs them (they are normalized inside the app, not upstream).
 pub fn known_models() -> Vec<ModelInfo> {
     vec![
+        // ── Cloud models (via mify / osbotapi channel) ──────────────────────
+        // All verified via live /v1/chat/completions and /v1/responses tests.
+        // "upstream" = model field echoed by the mify backend.
         ModelInfo {
             id: "xiaomi/mimo".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (multimodal, 256K)".into(),
+            family: "multimodal (text+vision+audio+video+tools+thinking, 64K ctx) [upstream: mimo]".into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (reasoning, 256K)".into(),
+            family: "reasoning (text+tools+thinking, 256K ctx, 128K out) [upstream: mimo-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-claw-0301".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (claw 0301 snapshot)".into(),
+            family: "reasoning snapshot (text+tools+thinking, 256K ctx, 128K out) [upstream: mimo-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/MiniMax-M2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (MiniMax M2.5)".into(),
+            family: "general (text+tools, 128K ctx, 8K out) [upstream: MiniMax-M2.5]".into(),
         },
         ModelInfo {
             id: "xiaomi/kimi-k2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (Kimi K2.5, reasoning)".into(),
+            family: "reasoning (text+tools+thinking, 128K ctx, 8K out) [upstream: kimi-k2.5]".into(),
         },
         ModelInfo {
             id: "xiaomi/glm-5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (GLM-5)".into(),
+            family: "general (text+tools, 128K ctx, 8K out) [upstream: glm-5]".into(),
         },
+        // ── Short aliases (resolved upstream by the mify router) ────────────
         ModelInfo {
             id: "mimo-omni".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (multimodal alias → xiaomi/mimo)".into(),
+            family: "alias → xiaomi/mimo [upstream: mimo]".into(),
         },
         ModelInfo {
             id: "mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (reasoning alias → xiaomi/mimo-pro)".into(),
+            family: "alias → xiaomi/mimo-pro [upstream: mimo-pro]".into(),
         },
     ]
 }
 
 pub struct MimoClient {
     auth: Arc<RwLock<AuthState>>,
-    client: Mutex<reqwest::Client>,
 }
 
 impl MimoClient {
     pub fn new(auth: Arc<RwLock<AuthState>>) -> Self {
-        let session = auth.read().session.clone();
-        let client = Self::build_client(&session);
-        Self {
-            auth,
-            client: Mutex::new(client),
-        }
-    }
-
-    /// Build a reqwest::Client tuned for the Mimo upstream.
-    /// Called once at construction and on 401 token refresh.
-    fn build_client(session: &crate::auth::Session) -> reqwest::Client {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("user-agent"),
-            HeaderValue::from_static("node"),
-        );
-        headers.insert(
-            HeaderName::from_static("accept"),
-            HeaderValue::from_static("*/*"),
-        );
-        headers.insert(
-            HeaderName::from_static("accept-encoding"),
-            HeaderValue::from_static("gzip"),
-        );
-        reqwest::Client::builder()
-            .default_headers(headers)
-            .gzip(true)
-            .pool_idle_timeout(std::time::Duration::from_secs(30))
-            .pool_max_idle_per_host(2)
-            .build()
-            .expect("MimoClient: reqwest::Client::new")
+        Self { auth }
     }
 
     pub fn auth_handle(&self) -> Arc<RwLock<AuthState>> {
@@ -229,6 +201,7 @@ impl MimoClient {
 
     async fn post_json_once(&self, path: &str, body: Value) -> Result<reqwest::Response> {
         let session = self.snapshot()?;
+        let (client, _) = build_http_client(&session)?;
         let headers = self.build_headers(&session)?;
         // Diagnostic: cookie shape (lengths only, never values).
         if let Some(c) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
@@ -244,9 +217,6 @@ impl MimoClient {
                 .collect();
             tracing::debug!(target = "mimo", "cookie shape: [{}]", parts.join(", "));
         }
-        // Clone the shared client (internally Arc, essentially free) so the
-        // Mutex lock is dropped before the .await, avoiding Send issues.
-        let client = self.client.lock().unwrap().clone();
         let resp = client
             .request(Method::POST, format!("{MIMO_HOST}{path}"))
             .headers(headers)
@@ -269,8 +239,6 @@ impl MimoClient {
         let next = crate::auth::login::swap_to_osbotapi_token(&dummy, session).await?;
         let mut guard = self.auth.write();
         guard.session = next;
-        // Rebuild the HTTP client with updated cookies.
-        *self.client.lock().unwrap() = Self::build_client(&guard.session);
         Ok(())
     }
 
