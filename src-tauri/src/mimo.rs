@@ -1,4 +1,4 @@
-use crate::auth::{build_http_client, AuthState};
+use crate::auth::AuthState;
 use crate::error::{BridgeError, Result};
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -112,11 +112,18 @@ pub fn known_models() -> Vec<ModelInfo> {
 
 pub struct MimoClient {
     auth: Arc<RwLock<AuthState>>,
+    client: reqwest::Client,
 }
 
 impl MimoClient {
     pub fn new(auth: Arc<RwLock<AuthState>>) -> Self {
-        Self { auth }
+        let client = reqwest::Client::builder()
+            .gzip(true)
+            .pool_idle_timeout(std::time::Duration::from_secs(60))
+            .pool_max_idle_per_host(16)
+            .build()
+            .expect("MimoClient: reqwest::Client::new");
+        Self { auth, client }
     }
 
     pub fn auth_handle(&self) -> Arc<RwLock<AuthState>> {
@@ -201,7 +208,6 @@ impl MimoClient {
 
     async fn post_json_once(&self, path: &str, body: Value) -> Result<reqwest::Response> {
         let session = self.snapshot()?;
-        let (client, _) = build_http_client(&session)?;
         let headers = self.build_headers(&session)?;
         // Diagnostic: cookie shape (lengths only, never values).
         if let Some(c) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
@@ -217,7 +223,7 @@ impl MimoClient {
                 .collect();
             tracing::debug!(target = "mimo", "cookie shape: [{}]", parts.join(", "));
         }
-        let resp = client
+        let resp = self.client
             .request(Method::POST, format!("{MIMO_HOST}{path}"))
             .headers(headers)
             .json(&body)

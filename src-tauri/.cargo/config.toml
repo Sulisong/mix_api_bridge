@@ -1,0 +1,29 @@
+# Build optimizations for mix_api_bridge.
+#
+# Enable with: cargo install sccache
+# Then set:   RUSTC_WRAPPER=sccache
+#
+# For Linux/macOS install mold or use lld:
+#   [target.x86_64-unknown-linux-gnu]
+#   linker = "clang"
+#   rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[profile.release]
+# thin LTO: ~80% of fat-LTO optimization at ~20% of the compile time cost
+lto = "thin"
+# Maximize per-codegen-unit optimization (trades compile time for binary quality)
+codegen-units = 1
+# Strip symbols from release binary (significantly reduces file size)
+strip = true
+# Optimize for size/speed balance
+opt-level = "z"
+
+[profile.dev]
+# Keep incremental compilation for fast dev iteration
+incremental = true
+# Speed up debug builds with more parallel codegen units
+codegen-units = 256
+
+[env]
+# Use the sparse protocol for faster crate index updates (Cargo >= 1.68)
+CARGO_REGISTRIES_CRATES_IO_PROTOCOL = "sparse"

@@ -77,7 +77,7 @@ impl OpenCodeClient {
                 .default_headers(headers)
                 .gzip(true)
                 .pool_idle_timeout(std::time::Duration::from_secs(30))
-                .pool_max_idle_per_host(2)
+                .pool_max_idle_per_host(16)
                 .build()
                 .expect("OpenCodeClient: reqwest::Client::new"),
         }

@@ -36,7 +36,7 @@ impl ProxyController {
             emitter,
             usage,
             verbose: AtomicBool::new(false),
-            semaphore: Arc::new(Semaphore::new(4)),
+            semaphore: Arc::new(Semaphore::new(16)),
         }
     }
 
