@@ -306,14 +306,11 @@ pub async fn opencode_forward(ctrl: Arc<ProxyController>, body: Value) -> Respon
         &ctrl,
         request_log(&ctrl, crate::opencode::PATH_CHAT, &body),
     );
-    // Try proxy pool first, fall back to direct
-    let proxy_result = ctrl
-        .opencode
-        .post_json_proxied(body.clone(), &ctrl.proxy_pool)
-        .await;
 
-    match proxy_result {
-        Ok((upstream, _node_id)) => {
+    // Rate-limit concurrent upstream calls.
+    let _permit = ctrl.semaphore.clone().acquire_owned().await.unwrap();
+    match ctrl.opencode.post_json(body).await {
+        Ok(upstream) => {
             let status = upstream.status();
             emit_log(
                 &ctrl,
@@ -332,49 +329,17 @@ pub async fn opencode_forward(ctrl: Arc<ProxyController>, body: Value) -> Respon
             proxy_response_tapped(ctrl, model, upstream).await
         }
         Err(e) => {
-            // If proxy failed (not available in "required" mode or network error),
-            // fall back to direct connection
-            let is_proxy_unavailable = matches!(&e, crate::error::BridgeError::Proxy(_));
-            if is_proxy_unavailable {
-                tracing::warn!(target = "proxy", "proxy unavailable, falling back to direct");
-            } else {
-                tracing::warn!(target = "proxy", "proxy error: {e}, falling back to direct");
-            }
-
-            // Direct fallback
-            match ctrl.opencode.post_json(body).await {
-                Ok(upstream) => {
-                    let status = upstream.status();
-                    emit_log(
-                        &ctrl,
-                        json!({
-                            "ts": chrono::Utc::now().timestamp_millis(),
-                            "kind": "response",
-                            "path": crate::opencode::PATH_CHAT,
-                            "status": status.as_u16(),
-                            "elapsed_ms": started.elapsed().as_millis() as u64,
-                        }),
-                    );
-                    if !status.is_success() {
-                        let text = upstream.text().await.unwrap_or_default();
-                        return (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), text).into_response();
-                    }
-                    proxy_response_tapped(ctrl, model, upstream).await
-                }
-                Err(e) => {
-                    emit_log(
-                        &ctrl,
-                        json!({
-                            "ts": chrono::Utc::now().timestamp_millis(),
-                            "kind": "error",
-                            "path": crate::opencode::PATH_CHAT,
-                            "message": e.to_string(),
-                            "elapsed_ms": started.elapsed().as_millis() as u64,
-                        }),
-                    );
-                    map_err(e)
-                }
-            }
+            emit_log(
+                &ctrl,
+                json!({
+                    "ts": chrono::Utc::now().timestamp_millis(),
+                    "kind": "error",
+                    "path": crate::opencode::PATH_CHAT,
+                    "message": e.to_string(),
+                    "elapsed_ms": started.elapsed().as_millis() as u64,
+                }),
+            );
+            map_err(e)
         }
     }
 }

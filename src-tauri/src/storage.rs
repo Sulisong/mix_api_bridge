@@ -101,10 +101,6 @@ impl Storage {
         &self.config_dir
     }
 
-    pub fn data_dir(&self) -> &std::path::Path {
-        &self.data_dir
-    }
-
     pub fn update_settings<F: FnOnce(&mut Settings)>(&self, f: F) -> Result<Settings> {
         let mut guard = self.settings.write();
         f(&mut guard);
