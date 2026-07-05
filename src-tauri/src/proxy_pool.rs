@@ -332,9 +332,7 @@ impl ProxyPoolStore {
     /// "required" → fail if no proxy available
     pub async fn proxy_mode(&self) -> String {
         std::env::var("MIX_PROXY_MODE").unwrap_or_else(|_| "optional".into())
-        // Read from settings — may add a dedicated field later
-        // For now default to "optional"
-        std::env::var("MIX_PROXY_MODE").unwrap_or_else(|_| "optional".into())
+    }
     }
 }
 

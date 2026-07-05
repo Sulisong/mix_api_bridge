@@ -148,15 +148,14 @@ impl OpenCodeClient {
             .post(format!("{OPENCODE_HOST}{PATH_CHAT}"))
             .json(&body)
             .send().await.map_err(|e| {
-            // Network error — mark proxy failure
+            let err_msg = e.to_string();
             if let Some(ref nid) = node_id {
-                let node_id = nid.clone();
-                let pool2 = pool;
-                tokio::spawn(async move {
-                    pool2.mark_failure(&node_id, &e.to_string(), 502).await;
-                });
+                tracing::warn!(
+                    target = "opencode",
+                    "proxy request failed for node {nid}: {err_msg}"
+                );
             }
-            crate::error::BridgeError::Proxy(e.to_string())
+            crate::error::BridgeError::Proxy(err_msg)
         })?;
 
         // Initial response — mark based on status
