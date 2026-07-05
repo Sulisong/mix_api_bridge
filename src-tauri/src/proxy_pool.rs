@@ -333,7 +333,6 @@ impl ProxyPoolStore {
     pub async fn proxy_mode(&self) -> String {
         std::env::var("MIX_PROXY_MODE").unwrap_or_else(|_| "optional".into())
     }
-    }
 }
 
 // ── Input for create/update ──────────────────────────────────────────
