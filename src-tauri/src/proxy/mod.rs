@@ -9,6 +9,7 @@ pub use transport::emit_log;
 
 use crate::mimo::MimoClient;
 use crate::opencode::OpenCodeClient;
+use crate::proxy_pool::ProxyPoolStore;
 use crate::state::LogEmitter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use tokio::sync::Semaphore;
 pub struct ProxyController {
     pub mimo: Arc<MimoClient>,
     pub opencode: Arc<OpenCodeClient>,
+    pub proxy_pool: Arc<ProxyPoolStore>,
     pub emitter: LogEmitter,
     pub usage: Arc<crate::usage::UsageStore>,
     verbose: AtomicBool,
@@ -29,6 +31,7 @@ impl ProxyController {
         opencode: Arc<OpenCodeClient>,
         emitter: LogEmitter,
         usage: Arc<crate::usage::UsageStore>,
+        proxy_pool: Arc<ProxyPoolStore>,
     ) -> Self {
         Self {
             mimo,
@@ -37,6 +40,7 @@ impl ProxyController {
             usage,
             verbose: AtomicBool::new(false),
             semaphore: Arc::new(Semaphore::new(16)),
+            proxy_pool,
         }
     }
 

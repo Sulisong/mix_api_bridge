@@ -6,7 +6,7 @@ use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use axum_server::Handle;
@@ -205,6 +205,8 @@ pub fn router(state: Arc<BridgeState>) -> Router {
             get(api_key_required_get).post(api_key_required_set),
         )
         .route("/api/usage", get(api_usage))
+        .route("/api/proxies", get(api_proxies_list).post(api_proxies_create))
+        .route("/api/proxies/:id", put(api_proxies_update).delete(api_proxies_delete))
         // everything under /api requires a valid admin session once configured
         // (the guard whitelists session/setup/login itself)
         .route_layer(axum::middleware::from_fn_with_state(
@@ -468,6 +470,101 @@ async fn api_usage(
 
 async fn api_auth_status(State(state): State<Arc<BridgeState>>) -> Response {
     json_result(crate::service::auth_status(&state).await)
+}
+
+// ── Proxy pool handlers ──────────────────────────────────────────────
+
+use crate::proxy_pool::{ProxyNodeInput, ProxyType};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct ProxyCreateBody {
+    name: Option<String>,
+    #[serde(rename = "type")]
+    proxy_type: Option<String>,
+    url: Option<String>,
+    enabled: Option<bool>,
+    weight: Option<u32>,
+    max_concurrency: Option<u32>,
+    daily_request_limit: Option<u64>,
+    auto_disable_when_daily_limit_reached: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct ProxyUpdateBody {
+    name: Option<String>,
+    #[serde(rename = "type")]
+    proxy_type: Option<String>,
+    url: Option<String>,
+    enabled: Option<bool>,
+    weight: Option<u32>,
+    max_concurrency: Option<u32>,
+    daily_request_limit: Option<u64>,
+    auto_disable_when_daily_limit_reached: Option<bool>,
+}
+
+fn parse_proxy_type(s: Option<String>) -> Option<ProxyType> {
+    match s.as_deref() {
+        Some("http") => Some(ProxyType::Http),
+        Some("https") => Some(ProxyType::Https),
+        Some("socks5") => Some(ProxyType::Socks5),
+        _ => None,
+    }
+}
+
+async fn api_proxies_list(State(state): State<Arc<BridgeState>>) -> Response {
+    let proxies = state.proxy_pool.list().await;
+    Json(serde_json::json!(proxies)).into_response()
+}
+
+async fn api_proxies_create(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<ProxyCreateBody>,
+) -> Response {
+    let input = ProxyNodeInput {
+        name: body.name,
+        proxy_type: parse_proxy_type(body.proxy_type),
+        url: body.url,
+        enabled: body.enabled,
+        weight: body.weight,
+        max_concurrency: body.max_concurrency,
+        daily_request_limit: body.daily_request_limit,
+        auto_disable_when_daily_limit_reached: body.auto_disable_when_daily_limit_reached,
+    };
+    let node = state.proxy_pool.create(input).await;
+    (StatusCode::CREATED, Json(serde_json::json!(node))).into_response()
+}
+
+async fn api_proxies_update(
+    State(state): State<Arc<BridgeState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<ProxyUpdateBody>,
+) -> Response {
+    let input = ProxyNodeInput {
+        name: body.name,
+        proxy_type: parse_proxy_type(body.proxy_type),
+        url: body.url,
+        enabled: body.enabled,
+        weight: body.weight,
+        max_concurrency: body.max_concurrency,
+        daily_request_limit: body.daily_request_limit,
+        auto_disable_when_daily_limit_reached: body.auto_disable_when_daily_limit_reached,
+    };
+    match state.proxy_pool.update(&id, input).await {
+        Some(node) => Json(serde_json::json!(node)).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn api_proxies_delete(
+    State(state): State<Arc<BridgeState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    if state.proxy_pool.delete(&id).await {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
 }
 
 async fn api_login(

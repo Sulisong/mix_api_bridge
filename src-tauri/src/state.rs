@@ -2,6 +2,7 @@ use crate::auth::AuthState;
 use crate::error::Result;
 use crate::mimo::MimoClient;
 use crate::opencode::OpenCodeClient;
+use crate::proxy_pool::ProxyPoolStore;
 use crate::storage::Storage;
 use parking_lot::{Mutex, RwLock};
 use serde_json::Value;
@@ -15,6 +16,7 @@ pub struct BridgeState {
     pub auth: Arc<RwLock<AuthState>>,
     pub mimo: Arc<MimoClient>,
     pub proxy: Arc<crate::proxy::ProxyController>,
+    pub proxy_pool: Arc<ProxyPoolStore>,
     pub logs: Arc<LogHub>,
     pub security: Arc<crate::security::Security>,
     pub usage: Arc<crate::usage::UsageStore>,
@@ -31,21 +33,24 @@ impl BridgeState {
         let auth = Arc::new(RwLock::new(AuthState::load(&storage)?));
         let mimo = Arc::new(MimoClient::new(auth.clone()));
         let opencode = Arc::new(OpenCodeClient::new());
+        let proxy_pool = Arc::new(ProxyPoolStore::new(storage.clone()));
         let logs = Arc::new(LogHub::new(500));
         let emitter = LogEmitter::new(logs.clone());
         let security = crate::security::Security::load(storage.clone())?;
         let usage = crate::usage::UsageStore::load(storage.clone());
         let proxy = Arc::new(crate::proxy::ProxyController::new(
             mimo.clone(),
-            opencode,
+            opencode.clone(),
             emitter,
             usage.clone(),
+            proxy_pool.clone(),
         ));
         Ok(Arc::new(Self {
             storage,
             auth,
             mimo,
             proxy,
+            proxy_pool,
             logs,
             security,
             usage,

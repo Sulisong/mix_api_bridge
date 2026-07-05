@@ -94,4 +94,69 @@ impl OpenCodeClient {
             .await?;
         Ok(resp)
     }
+
+    /// POST through the proxy pool. Acquires a proxy node, attaches it to the
+    /// request, and returns the response along with the node id so the caller
+    /// can mark success/failure after consuming the stream.
+    pub async fn post_json_proxied(
+        &self,
+        body: Value,
+        pool: &crate::proxy_pool::ProxyPoolStore,
+    ) -> std::result::Result<
+        (reqwest::Response, Option<String>),
+        crate::error::BridgeError,
+    > {
+        let mode = pool.proxy_mode().await;
+        let lease = pool.acquire().await;
+
+        // Proxy required but none available → hard error
+        if mode == "required" && lease.is_none() {
+            return Err(crate::error::BridgeError::Proxy(
+                "Proxy is required but no proxy node is available".into(),
+            ));
+        }
+
+        let node_id = lease.as_ref().map(|l| l.node.id.clone());
+        let mut req = self
+            .client
+            .post(format!("{OPENCODE_HOST}{PATH_CHAT}"))
+            .json(&body);
+
+        // Attach proxy agent if we have one
+        if let Some(ref lease) = lease {
+            if let Some(proxy) = crate::proxy_pool::ProxyPoolStore::to_http_proxy(&lease.node) {
+                req = req.proxy(proxy);
+            }
+        }
+
+        let resp = req.send().await.map_err(|e| {
+            // Network error — mark proxy failure
+            if let Some(ref nid) = node_id {
+                let node_id = nid.clone();
+                let pool2 = pool;
+                tokio::spawn(async move {
+                    pool2.mark_failure(&node_id, &e.to_string(), 502).await;
+                });
+            }
+            crate::error::BridgeError::Proxy(e.to_string())
+        })?;
+
+        // Initial response — mark based on status
+        let status = resp.status();
+        if let Some(ref nid) = node_id {
+            let nid = nid.clone();
+            let pool2 = pool;
+            if status.as_u16() == 429 {
+                pool2.mark_failure(&nid, "Upstream returned 429", 429).await;
+            } else if !status.is_success() {
+                pool2
+                    .mark_failure(&nid, &format!("Upstream returned {status}"), status.as_u16())
+                    .await;
+            } else {
+                pool2.mark_success(&nid).await;
+            }
+        }
+
+        Ok((resp, node_id))
+    }
 }

@@ -6,6 +6,7 @@ pub mod error;
 pub mod mimo;
 pub mod opencode;
 pub mod proxy;
+pub mod proxy_pool;
 pub mod security;
 pub mod server;
 pub mod service;
