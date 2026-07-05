@@ -117,19 +117,37 @@ impl OpenCodeClient {
         }
 
         let node_id = lease.as_ref().map(|l| l.node.id.clone());
-        let mut req = self
-            .client
-            .post(format!("{OPENCODE_HOST}{PATH_CHAT}"))
-            .json(&body);
 
-        // Attach proxy agent if we have one
-        if let Some(ref lease) = lease {
+        // Build a client with proxy if we have one, else use the default client.
+        // The `socks` feature on reqwest adds `.proxy()` to RequestBuilder;
+        // to avoid pulling it in for MIPS cross-compile we build a one-off client.
+        let client: reqwest::Client = if let Some(ref lease) = lease {
             if let Some(proxy) = crate::proxy_pool::ProxyPoolStore::to_http_proxy(&lease.node) {
-                req = req.proxy(proxy);
+                reqwest::Client::builder()
+                    .default_headers(
+                        std::iter::once((
+                            reqwest::header::USER_AGENT,
+                            reqwest::header::HeaderValue::from_static(
+                                "mix-api-bridge/0.1.0",
+                            ),
+                        ))
+                        .collect(),
+                    )
+                    .proxy(proxy)
+                    .gzip(true)
+                    .build()
+                    .unwrap_or_else(|_| self.client.clone())
+            } else {
+                self.client.clone()
             }
-        }
+        } else {
+            self.client.clone()
+        };
 
-        let resp = req.send().await.map_err(|e| {
+        let resp = client
+            .post(format!("{OPENCODE_HOST}{PATH_CHAT}"))
+            .json(&body)
+            .send().await.map_err(|e| {
             // Network error — mark proxy failure
             if let Some(ref nid) = node_id {
                 let node_id = nid.clone();
