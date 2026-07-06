@@ -6,7 +6,7 @@ use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use axum_server::Handle;
@@ -259,26 +259,8 @@ async fn admin_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    // Admin password authentication is DISABLED — the WebUI works without
-    // a login. If you want to re-enable it, uncomment the block below and
-    // remove this early return.
+    // Admin password authentication is DISABLED.
     return next.run(req).await;
-
-    // --- original auth guard (keep as reference) ---
-    // let path = req.uri().path();
-    // if admin_open_path(path) || !state.security.is_configured() {
-    //     return next.run(req).await;
-    // }
-    // if let Some(token) = session_cookie(req.headers()) {
-    //     if state.security.validate_session(&token) {
-    //         return next.run(req).await;
-    //     }
-    // }
-    // (
-    //     StatusCode::UNAUTHORIZED,
-    //     Json(json!({"error": {"message": "admin authentication required"}})),
-    // )
-    //     .into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -476,4 +458,184 @@ async fn api_auth_status(State(state): State<Arc<BridgeState>>) -> Response {
     json_result(crate::service::auth_status(&state).await)
 }
 
-use serde::Deserialize;
+async fn api_login(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<LoginRequest>,
+) -> Response {
+    json_result(crate::service::login(&state, req).await)
+}
+
+async fn api_send_ticket(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<SendTicketRequest>,
+) -> Response {
+    json_result(crate::service::send_two_factor_ticket(&state, req.flag).await)
+}
+
+async fn api_verify_ticket(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<VerifyTicketRequest>,
+) -> Response {
+    json_result(crate::service::verify_two_factor(&state, req.flag, req.ticket).await)
+}
+
+async fn api_refresh_session(State(state): State<Arc<BridgeState>>) -> Response {
+    json_result(crate::service::refresh_session(&state).await)
+}
+
+async fn api_logout(State(state): State<Arc<BridgeState>>) -> Response {
+    json_result(crate::service::logout(&state).await)
+}
+
+async fn api_proxy_status(State(state): State<Arc<BridgeState>>) -> Response {
+    Json(crate::service::proxy_status(&state)).into_response()
+}
+
+async fn api_set_port(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<SetPortRequest>,
+) -> Response {
+    json_result(crate::service::set_proxy_port(&state, req.port).await)
+}
+
+async fn api_models(State(_state): State<Arc<BridgeState>>) -> Response {
+    Json(crate::service::list_models()).into_response()
+}
+
+async fn api_logs(State(state): State<Arc<BridgeState>>) -> Response {
+    Json(state.logs.snapshot()).into_response()
+}
+
+async fn api_logs_verbose_get(State(state): State<Arc<BridgeState>>) -> Response {
+    Json(json!({ "enabled": state.proxy.verbose() })).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct VerboseRequest {
+    enabled: bool,
+}
+
+async fn api_logs_verbose_set(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<VerboseRequest>,
+) -> Response {
+    state.proxy.set_verbose(req.enabled);
+    Json(json!({ "enabled": req.enabled })).into_response()
+}
+
+async fn api_logs_stream(
+    State(state): State<Arc<BridgeState>>,
+) -> Sse<impl Stream<Item = std::result::Result<Event, Infallible>>> {
+    let rx = state.logs.subscribe();
+    let stream = stream::unfold(rx, |mut rx| async {
+        loop {
+            match rx.recv().await {
+                Ok(payload) => {
+                    let event = Event::default().json_data(payload).unwrap_or_else(|_| {
+                        Event::default().data("{\"kind\":\"error\",\"message\":\"encode log\"}")
+                    });
+                    return Some((Ok(event), rx));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+fn json_result<T: Serialize>(result: Result<T>) -> Response {
+    match result {
+        Ok(value) => Json(value).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+fn error_response(e: BridgeError) -> Response {
+    let status = match &e {
+        BridgeError::NotAuthenticated => StatusCode::UNAUTHORIZED,
+        BridgeError::Login(_) | BridgeError::VerificationCodeError => StatusCode::UNAUTHORIZED,
+        BridgeError::Proxy(_) | BridgeError::Storage(_) => StatusCode::BAD_REQUEST,
+        _ => StatusCode::BAD_GATEWAY,
+    };
+    (
+        status,
+        Json(json!({
+            "error": {
+                "message": e.to_string(),
+            }
+        })),
+    )
+        .into_response()
+}
+
+#[derive(RustEmbed)]
+#[folder = "../dist"]
+struct Assets;
+
+async fn static_asset(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    if path.starts_with("api/") || path.starts_with("v1/") {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": {"message": "not found"}})),
+        )
+            .into_response();
+    }
+
+    let asset_path = if path.is_empty() { "index.html" } else { path };
+    match Assets::get(asset_path) {
+        Some(asset) => asset_response(asset_path, asset.data),
+        None => match Assets::get("index.html") {
+            Some(asset) => asset_response("index.html", asset.data),
+            None => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webui assets are not embedded; run pnpm build before cargo build",
+            )
+                .into_response(),
+        },
+    }
+}
+
+fn asset_response(path: &str, data: Cow<'static, [u8]>) -> Response {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(mime.as_ref())
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    (headers, data.into_owned()).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::BridgeState;
+    use crate::storage::Storage;
+
+    /// After `shutdown_and_wait`, the listener is released so a new server can
+    /// bind the exact same port — the basis for the desktop TLS toggle.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shutdown_and_wait_frees_the_port() {
+        let base = std::env::temp_dir().join(format!("mb-restart-{}", std::process::id()));
+        let storage = Storage::for_paths(base.join("c"), base.join("d")).unwrap();
+        let state = BridgeState::with_storage(storage).unwrap();
+
+        let host = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let first = start_http(state.clone(), ServerConfig { host, port: 0 })
+            .await
+            .expect("first bind");
+        let port = first.addr.port();
+        first.shutdown_and_wait().await;
+
+        // Re-bind the same port; would fail with EADDRINUSE if not released.
+        let second = start_http(state.clone(), ServerConfig { host, port })
+            .await
+            .expect("rebind same port after shutdown");
+        assert_eq!(second.addr.port(), port);
+        second.shutdown_and_wait().await;
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
