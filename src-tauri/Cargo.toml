@@ -1,6 +1,6 @@
 [package]
 name = "mix_api_bridge"
-version = "0.1.0"
+version = "0.1.13"
 description = "Bridge Xiaomi mimo LLM into local OpenAI / Claude compatible APIs"
 edition = "2021"
 rust-version = "1.77"
