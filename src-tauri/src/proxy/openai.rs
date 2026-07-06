@@ -92,8 +92,10 @@ async fn chat_completions(ctrl: Arc<ProxyController>, body: Value) -> Response {
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.contains("event-stream"))
                 .unwrap_or(false);
+            // Direct passthrough to avoid ~3x latency from tokio::spawn + mpsc
+            // channel in the full SSE normalizer (critical on MIPS routers).
             match (client_stream, upstream_sse) {
-                (true, true) => chat_stream_normalized(ctrl, model_req, want_usage, upstream),
+                (true, true) => super::transport::proxy_response_tapped(ctrl, model_req.clone(), upstream).await,
                 (true, false) => {
                     chat_stream_from_json(ctrl, model_req, want_usage, upstream).await
                 }
