@@ -259,20 +259,26 @@ async fn admin_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let path = req.uri().path();
-    if admin_open_path(path) || !state.security.is_configured() {
-        return next.run(req).await;
-    }
-    if let Some(token) = session_cookie(req.headers()) {
-        if state.security.validate_session(&token) {
-            return next.run(req).await;
-        }
-    }
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({"error": {"message": "admin authentication required"}})),
-    )
-        .into_response()
+    // Admin password authentication is DISABLED — the WebUI works without
+    // a login. If you want to re-enable it, uncomment the block below and
+    // remove this early return.
+    return next.run(req).await;
+
+    // --- original auth guard (keep as reference) ---
+    // let path = req.uri().path();
+    // if admin_open_path(path) || !state.security.is_configured() {
+    //     return next.run(req).await;
+    // }
+    // if let Some(token) = session_cookie(req.headers()) {
+    //     if state.security.validate_session(&token) {
+    //         return next.run(req).await;
+    //     }
+    // }
+    // (
+    //     StatusCode::UNAUTHORIZED,
+    //     Json(json!({"error": {"message": "admin authentication required"}})),
+    // )
+    //     .into_response()
 }
 
 #[derive(serde::Deserialize)]

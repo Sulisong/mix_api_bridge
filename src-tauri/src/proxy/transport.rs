@@ -324,6 +324,17 @@ pub async fn opencode_forward(ctrl: Arc<ProxyController>, body: Value) -> Respon
             );
             if !status.is_success() {
                 let text = upstream.text().await.unwrap_or_default();
+                emit_log(
+                    &ctrl,
+                    json!({
+                        "ts": chrono::Utc::now().timestamp_millis(),
+                        "kind": "error",
+                        "path": crate::opencode::PATH_CHAT,
+                        "status": status.as_u16(),
+                        "body": text,
+                        "elapsed_ms": started.elapsed().as_millis() as u64,
+                    }),
+                );
                 return (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), text).into_response();
             }
             proxy_response_tapped(ctrl, model, upstream).await

@@ -75,7 +75,9 @@ fn rand_hex(bytes: usize) -> String {
 
 impl Security {
     pub fn load(storage: Arc<Storage>) -> Result<Arc<Self>> {
-        let blob = storage.load_blob::<SecurityBlob>(BLOB)?.unwrap_or_default();
+        let mut blob = storage.load_blob::<SecurityBlob>(BLOB)?.unwrap_or_default();
+        // Clear any stored admin password — the WebUI no longer requires login.
+        blob.admin_password_hash = None;
         Ok(Arc::new(Self {
             storage,
             blob: Mutex::new(blob),
