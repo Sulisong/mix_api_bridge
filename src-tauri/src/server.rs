@@ -47,7 +47,12 @@ pub struct HttpServer {
 impl HttpServer {
     pub fn webui_url(&self) -> String {
         let scheme = if self.tls { "https" } else { "http" };
-        format!("{scheme}://{}", self.addr)
+        let host = if self.addr.ip().is_unspecified() {
+            "127.0.0.1"
+        } else {
+            &self.addr.ip().to_string()
+        };
+        format!("{scheme}://{}:{}", host, self.addr.port())
     }
 
     pub fn shutdown(mut self) {
