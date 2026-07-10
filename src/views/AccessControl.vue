@@ -88,7 +88,7 @@ onMounted(load);
       </button>
     </div>
     <p v-if="!enabled" class="notice warn">
-      当前白名单未开启，任何设备均可访问（需通过 --host 0.0.0.0 启动）。
+      当前白名单未开启，仅 127.0.0.1 可访问（白名单需通过 --host 0.0.0.0 启动）
     </p>
   </section>
 

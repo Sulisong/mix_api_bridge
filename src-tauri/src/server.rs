@@ -408,9 +408,6 @@ async fn ip_whitelist_guard(
     next: axum::middleware::Next,
 ) -> Response {
     let settings = state.storage.settings();
-    if !settings.ip_whitelist_enabled {
-        return next.run(req).await;
-    }
 
     let client_ip = req
         .extensions()
@@ -419,7 +416,7 @@ async fn ip_whitelist_guard(
 
     match client_ip {
         Some(ip) if ip.is_loopback() => next.run(req).await,
-        Some(ip) => {
+        Some(ip) if settings.ip_whitelist_enabled => {
             let ip_str = ip.to_string();
             if settings.ip_whitelist.iter().any(|w| *w == ip_str) {
                 next.run(req).await
@@ -435,6 +432,18 @@ async fn ip_whitelist_guard(
                 )
                     .into_response()
             }
+        }
+        Some(ip) => {
+            (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": {
+                        "type": "access_denied",
+                        "message": "IP whitelist is not enabled, only 127.0.0.1 can access (whitelist requires starting with --host 0.0.0.0)",
+                    }
+                })),
+            )
+                .into_response()
         }
         None => next.run(req).await,
     }

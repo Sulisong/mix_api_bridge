@@ -40,7 +40,7 @@ fn start_server(
     let server = runtime.block_on(start_http(
         state,
         ServerConfig {
-            host: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            host: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             port,
         },
     ))?;
