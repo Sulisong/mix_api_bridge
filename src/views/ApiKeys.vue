@@ -9,6 +9,7 @@ const createdSecret = ref<string | null>(null);
 const busy = ref(false);
 const error = ref("");
 const copied = ref(false);
+const loaded = ref(false);
 
 async function load() {
   error.value = "";
@@ -17,6 +18,8 @@ async function load() {
     required.value = (await api.getApiKeyRequired()).required;
   } catch (e: any) {
     error.value = e?.message ?? String(e);
+  } finally {
+    loaded.value = true;
   }
 }
 
@@ -81,6 +84,7 @@ onMounted(load);
 <template>
   <p v-if="error" class="notice bad">{{ error }}</p>
 
+  <template v-if="loaded">
   <section class="panel">
     <div class="panel-heading">
       <p class="section-number">01</p>
@@ -147,6 +151,7 @@ onMounted(load);
       </div>
     </div>
   </section>
+  </template>
 </template>
 
 <style scoped>

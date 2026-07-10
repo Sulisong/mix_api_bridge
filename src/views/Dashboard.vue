@@ -9,6 +9,7 @@ const models = ref<ModelInfo[]>([]);
 const portInput = ref<number>(8765);
 const busy = ref(false);
 const err = ref("");
+const loaded = ref(false);
 
 const proxyBase = computed(() => {
   const port = proxy.value?.active_port ?? proxy.value?.port ?? 8765;
@@ -30,6 +31,8 @@ async function refreshAll() {
     portInput.value = proxy.value.port;
   } catch (e: any) {
     err.value = String(e);
+  } finally {
+    loaded.value = true;
   }
 }
 
@@ -66,6 +69,7 @@ onMounted(refreshAll);
 <template>
   <p v-if="err" class="notice bad">{{ err }}</p>
 
+  <template v-if="loaded">
   <section class="status-strip" aria-label="运行状态">
     <div>
       <span class="label">Bridge</span>
@@ -189,4 +193,5 @@ onMounted(refreshAll);
       </div>
     </div>
   </section>
+  </template>
 </template>
