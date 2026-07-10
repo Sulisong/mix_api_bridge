@@ -36,6 +36,14 @@ pub struct Settings {
     /// Off by default so existing "any key works" setups keep working.
     #[serde(default)]
     pub api_key_required: bool,
+    /// Enable IP whitelist; when on, only whitelisted IPs (plus localhost) can
+    /// access any endpoint.
+    #[serde(default)]
+    pub ip_whitelist_enabled: bool,
+    /// Allowed client IPs (plain IPv4/IPv6 strings). 127.0.0.1 and ::1 are
+    /// always permitted regardless of this list.
+    #[serde(default)]
+    pub ip_whitelist: Vec<String>,
 }
 
 fn default_port() -> u16 {
@@ -50,6 +58,8 @@ impl Default for Settings {
             tls_cert_path: None,
             tls_key_path: None,
             api_key_required: false,
+            ip_whitelist_enabled: false,
+            ip_whitelist: Vec::new(),
         }
     }
 }

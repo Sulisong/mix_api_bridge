@@ -7,6 +7,7 @@ import Login from "./views/Login.vue";
 import Logs from "./views/Logs.vue";
 import AdminLogin from "./views/AdminLogin.vue";
 import ApiKeys from "./views/ApiKeys.vue";
+import AccessControl from "./views/AccessControl.vue";
 import Usage from "./views/Usage.vue";
 import { api } from "./api";
 import "./styles.css";
@@ -19,6 +20,7 @@ const router = createRouter({
     { path: "/login", component: Login },
     { path: "/logs", component: Logs },
     { path: "/keys", component: ApiKeys },
+    { path: "/access", component: AccessControl },
     { path: "/usage", component: Usage },
     { path: "/admin-login", component: AdminLogin },
   ],

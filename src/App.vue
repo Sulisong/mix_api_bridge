@@ -17,6 +17,7 @@ const pageTitle = computed(() => {
   if (route.path.includes("login")) return "小米账号";
   if (route.path.includes("logs")) return "代理日志";
   if (route.path.includes("keys")) return "API 密钥";
+  if (route.path.includes("access")) return "访问控制";
   if (route.path.includes("usage")) return "用量统计";
   return "本地代理";
 });
@@ -106,6 +107,7 @@ watchEffect(() => {
         <RouterLink to="/dashboard">Proxy</RouterLink>
         <RouterLink to="/login">Account</RouterLink>
         <RouterLink to="/keys">Keys</RouterLink>
+        <RouterLink to="/access">Access</RouterLink>
         <RouterLink to="/usage">Usage</RouterLink>
         <RouterLink to="/logs">Logs</RouterLink>
       </nav>

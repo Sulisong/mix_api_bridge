@@ -123,4 +123,13 @@ export const api = {
 
   // usage stats
   usage: (window: string) => request<UsageReport>(`/api/usage?window=${window}`),
+
+  // ip whitelist
+  getIpWhitelist: () =>
+    request<{ enabled: boolean; ips: string[] }>("/api/settings/ip-whitelist"),
+  setIpWhitelist: (body: {
+    enabled?: boolean;
+    ip?: string;
+    remove?: string;
+  }) => post<{ enabled: boolean; ips: string[] }>("/api/settings/ip-whitelist", body),
 };

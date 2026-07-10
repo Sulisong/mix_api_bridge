@@ -94,7 +94,7 @@ pub async fn start_http(state: Arc<BridgeState>, config: ServerConfig) -> Result
         let tls_config = load_or_make_tls(&state).await?;
         let handle2 = handle.clone();
         let state2 = state.clone();
-        let make_service = app.into_make_service();
+        let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
         tokio::spawn(async move {
             if let Err(e) = axum_server::from_tcp_rustls(std_listener, tls_config)
                 .handle(handle2)
@@ -108,7 +108,7 @@ pub async fn start_http(state: Arc<BridgeState>, config: ServerConfig) -> Result
     } else {
         let handle2 = handle.clone();
         let state2 = state.clone();
-        let make_service = app.into_make_service();
+        let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
         tokio::spawn(async move {
             if let Err(e) = axum_server::from_tcp(std_listener)
                 .handle(handle2)
@@ -205,6 +205,11 @@ pub fn router(state: Arc<BridgeState>) -> Router {
             get(api_key_required_get).post(api_key_required_set),
         )
         .route("/api/usage", get(api_usage))
+        // ip whitelist settings
+        .route(
+            "/api/settings/ip-whitelist",
+            get(api_ip_whitelist_get).post(api_ip_whitelist_set),
+        )
         // everything under /api requires a valid admin session once configured
         // (the guard whitelists session/setup/login itself)
         .route_layer(axum::middleware::from_fn_with_state(
@@ -228,6 +233,10 @@ pub fn router(state: Arc<BridgeState>) -> Router {
         .merge(api)
         .merge(proxy)
         .fallback(static_asset)
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            ip_whitelist_guard,
+        ))
         .layer(CorsLayer::permissive())
 }
 
@@ -385,6 +394,88 @@ async fn api_key_guard(
             })),
         )
             .into_response()
+    }
+}
+
+// ---- IP whitelist -----------------------------------------------------------
+
+/// Global middleware: when `ip_whitelist_enabled` is on, reject requests from
+/// IPs not in the whitelist. 127.0.0.1 and ::1 are always allowed to prevent
+/// lockout.
+async fn ip_whitelist_guard(
+    State(state): State<Arc<BridgeState>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let settings = state.storage.settings();
+    if !settings.ip_whitelist_enabled {
+        return next.run(req).await;
+    }
+
+    let client_ip = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.ip());
+
+    match client_ip {
+        Some(ip) if ip.is_loopback() => next.run(req).await,
+        Some(ip) => {
+            let ip_str = ip.to_string();
+            if settings.ip_whitelist.iter().any(|w| *w == ip_str) {
+                next.run(req).await
+            } else {
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({
+                        "error": {
+                            "type": "access_denied",
+                            "message": format!("IP {} is not in the whitelist", ip_str),
+                        }
+                    })),
+                )
+                    .into_response()
+            }
+        }
+        None => next.run(req).await,
+    }
+}
+
+async fn api_ip_whitelist_get(State(state): State<Arc<BridgeState>>) -> Response {
+    let s = state.storage.settings();
+    Json(json!({ "enabled": s.ip_whitelist_enabled, "ips": s.ip_whitelist })).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct IpWhitelistReq {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    ip: Option<String>,
+    #[serde(default)]
+    remove: Option<String>,
+}
+
+async fn api_ip_whitelist_set(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<IpWhitelistReq>,
+) -> Response {
+    match state.storage.update_settings(|s| {
+        if let Some(enabled) = req.enabled {
+            s.ip_whitelist_enabled = enabled;
+        }
+        if let Some(ip) = &req.ip {
+            let trimmed = ip.trim().to_string();
+            if !trimmed.is_empty() && !s.ip_whitelist.contains(&trimmed) {
+                s.ip_whitelist.push(trimmed);
+            }
+        }
+        if let Some(remove) = &req.remove {
+            s.ip_whitelist.retain(|ip| ip != remove);
+        }
+    }) {
+        Ok(s) => Json(json!({ "enabled": s.ip_whitelist_enabled, "ips": s.ip_whitelist }))
+            .into_response(),
+        Err(e) => error_response(e),
     }
 }
 
